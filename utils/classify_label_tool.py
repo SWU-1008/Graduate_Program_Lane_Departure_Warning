@@ -74,15 +74,29 @@ def DrawChinese(img, text, positive, fontSize=50, fontColor=(255, 0, 0)):
     return cv2charimg
 
 
+# 展示图片打标签
+def label_img(img, text_array) -> int:
+    text = '，'.join(text_array)
+    img1 = DrawChinese(img, text, (50, 50))
+    cv.imshow('haha', img1)
+    k = cv.waitKey(0)
+    k -= 48
+    while k not in [i for i in range(len(text_array))]:
+        cv.imshow('haha', img1)
+        k = cv.waitKey(0)
+        k -= 48
+    return k
+
+
 if __name__ == '__main__':
-    base_dir = r'C:\Users\pengj\Desktop\毕业相关\Graduate_Program_Lane_Departure_Warning\utils'
+    base_dir = r'E:\lane_dataset\CULane'  # 相应修改
     labels_dir = os.path.join(base_dir, 'list')
     save_txt = 'xx.txt'
     label_files = get_all_files(labels_dir, recursion=False)
     end_line_path = None
     if os.path.exists(save_txt):
         with open(save_txt, 'r') as xx:
-            end_line_path = xx.readlines()[-1].strip('\n').split()[0]
+            end_line_path = xx.readlines()[-1].strip('\n').split()[0]  # 获取已打标签的最后一行的照片路径
     print('end_line_path: ', end_line_path)
     flag = False
     for file in label_files:
@@ -102,22 +116,9 @@ if __name__ == '__main__':
                 print(img_path)
                 # img = cv.imread('haha.jpg')
                 img = cv.imread(img_path)
-                img1 = DrawChinese(img, '正常：0 ，逆光：1', (50, 50))
-                cv.imshow('haha', img1)
-                k1 = cv.waitKey(0)
-                k1 -= 48
-                while k1 not in [0, 1]:
-                    cv.imshow('haha', img1)
-                    k1 = cv.waitKey(0)
-                    k1 -= 48
-                img2 = DrawChinese(img, '白天：0，夜晚：1，阴影：2', (50, 50))
-                cv.imshow('haha', img2)
-                k2 = cv.waitKey(0)
-                k2 -= 48
-                while k2 not in [0, 1, 2]:
-                    cv.imshow('haha', img2)
-                    k2 = cv.waitKey(0)
-                    k2 -= 48
+
+                k1 = label_img(img, ["正常：0 ", "逆光：1"])
+                k2 = label_img(img, ["白天：0", "夜晚：1", "阴影：2"])
 
                 with open('xx.txt', 'a') as ff:
                     ff.write(ori_img_path + ' ' + str(k1) + ' ' + str(k2) + '\n')
