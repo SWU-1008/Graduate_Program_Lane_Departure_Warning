@@ -403,6 +403,7 @@ class MyDataset(Dataset):
 
 if __name__ == '__main__':
     from tqdm import tqdm
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     mydata = MyDataset('xx.txt', 'C')
     batch_size = 4
@@ -414,16 +415,20 @@ if __name__ == '__main__':
     # 加载数据
     train_data = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
     test_data = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
+    print('len(train_data),len(test_data)', len(train_data), len(test_data))
 
     my_resnet_50 = resnet50()
+    my_resnet_50.to(device)  # 加载进 gpu 如果有的话
     # train
     epochs = 100
+
     for epoch in range(epochs):
         print('epoch: ', epoch)
         my_resnet_50.train()
         for img_batch, y_batch in tqdm(train_data):
-            print(img_batch, y_batch)
-
+            print(type(img_batch))
+            # print(img_batch, y_batch)
+            pass
     # val
     my_resnet_50.eval()
 
