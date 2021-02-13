@@ -89,7 +89,8 @@ def label_img(img, text_array) -> int:
 
 
 if __name__ == '__main__':
-    base_dir = r'E:\lane_dataset\CULane'  # 相应修改
+    # base_dir = r'E:\lane_dataset\CULane'  # 相应修改
+    base_dir = r'C:\Users\pengj\Desktop\毕业相关\Graduate_Program_Lane_Departure_Warning\utils'  # 相应修改
     labels_dir = os.path.join(base_dir, 'list')
     save_txt = 'xx.txt'
     label_files = get_all_files(labels_dir, recursion=False)
@@ -114,9 +115,11 @@ if __name__ == '__main__':
                     continue
                 img_path = os.path.join(base_dir, *ori_img_path.split('/'))
                 print(img_path)
-                # img = cv.imread('haha.jpg')
-                img = cv.imread(img_path)
-
+                img = cv.imread('resnet50.jpg')
+                print('111',img.shape) # shape: H W C
+                # img = cv.imread(img_path)
+                # img = cv.resize(img, (img.shape[1] // 2, img.shape[0] // 2))
+                print('222',img.shape)
                 k1 = label_img(img, ["正常：0 ", "逆光：1"])
                 k2 = label_img(img, ["白天：0", "夜晚：1", "阴影：2"])
 
