@@ -385,7 +385,6 @@ class MyDataset(Dataset):
         for line in lines:
             # print(line)
             line = line.strip('\n')
-            print(line)
             img, a, b = line.split()
             img_path = os.path.join(base_dir, os.path.join(*img.split('/')))
             self.data.append((img_path, classes_dict[a + b]))
@@ -403,10 +402,29 @@ class MyDataset(Dataset):
 
 
 if __name__ == '__main__':
+    from tqdm import tqdm
+
+    mydata = MyDataset('xx.txt', 'C')
+    batch_size = 4
+    # 8:2 划分训练验证集
+    train_size = int(0.8 * len(mydata))
+    test_size = len(mydata) - train_size
+    print('train_size,test_size', train_size, test_size)
+    train_set, test_set = torch.utils.data.random_split(mydata, [train_size, test_size])
+    # 加载数据
+    train_data = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
+    test_data = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
+
     my_resnet_50 = resnet50()
     # train
-    mydata = MyDataset('xx.txt', 'C')
-    data = DataLoader(mydata, batch_size=4, shuffle=True, num_workers=4)
-    for batch_id,batch_samples in enumerate(data):
-        img_batch,label_batch = batch_samples
-        print(img_batch,label_batch)
+    epochs = 100
+    for epoch in range(epochs):
+        print('epoch: ', epoch)
+        my_resnet_50.train()
+        for img_batch, y_batch in tqdm(train_data):
+            print(img_batch, y_batch)
+
+    # val
+    my_resnet_50.eval()
+
+    # test
