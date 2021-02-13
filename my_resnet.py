@@ -403,33 +403,88 @@ class MyDataset(Dataset):
 
 if __name__ == '__main__':
     from tqdm import tqdm
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    mydata = MyDataset('xx.txt', 'C')
+    mydata = MyDataset('xx2.txt', 'C')
     batch_size = 4
     # 8:2 划分训练验证集
     train_size = int(0.8 * len(mydata))
-    test_size = len(mydata) - train_size
-    print('train_size,test_size', train_size, test_size)
-    train_set, test_set = torch.utils.data.random_split(mydata, [train_size, test_size])
+    val_size = len(mydata) - train_size
+    print('train_size,test_size', train_size, val_size)
+    train_set, val_set = torch.utils.data.random_split(mydata, [train_size, val_size])
     # 加载数据
     train_data = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
-    test_data = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
-    print('len(train_data),len(test_data)', len(train_data), len(test_data))
+    val_data = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4)
+    print('len(train_data),len(test_data)', len(train_data), len(val_data))
 
-    my_resnet_50 = resnet50()
+    my_resnet_50 = resnet50(num_classes=6)
     my_resnet_50.to(device)  # 加载进 gpu 如果有的话
+    criteon = nn.CrossEntropyLoss().to(device)
+    optimizer = torch.optim.Adam(my_resnet_50.parameters(), lr=5e-4)
     # train
-    epochs = 100
+    epochs = 4
 
     for epoch in range(epochs):
         print('epoch: ', epoch)
         my_resnet_50.train()
         for img_batch, y_batch in tqdm(train_data):
-            print(type(img_batch))
+            x = torch.randn(len(y_batch), 3, 1080, 1920)
+            # img_batch = img_batch.to(device)
+            # y_batch = y_batch.to(device)
             # print(img_batch, y_batch)
-            pass
-    # val
-    my_resnet_50.eval()
-
+            # logits = my_resnet_50(img_batch)
+            logits = my_resnet_50(x)
+            print('logits.shape', logits, logits.shape)
+            loss = criteon(logits, y_batch)
+            print('epoch, loss.item())', epoch, loss.item())
+            # back prop
+            optimizer.zero_grad()
+            loss.backward()
+            # loss.back
+            optimizer.step()  # 梯度清零
+        #  每 5 个 epoch 做一次 val
+        if epoch % 2 == 0:
+            # val 必须调用model.eval()，以便在运行推断之前将dropout和batch规范化层设置为评估模式。如果不这样做，将会产生不一致的推断结果。
+            my_resnet_50.eval()
+            total_correct = 0
+            total_num = 0
+            for img_batch, y_batch in tqdm(val_data):
+                x = torch.randn(len(y_batch), 3, 1080, 1920)
+                # img_batch = img_batch.to(device)
+                # y_batch = y_batch.to(device)
+                # print(img_batch, y_batch)
+                # logits = my_resnet_50(img_batch)
+                # [b,6]
+                logits = my_resnet_50(x)
+                # [b]
+                pred = logits.argmax(dim=1)
+                total_correct += torch.eq(pred, y_batch).float().sum().item()
+                total_num += x.size(0)
+                print('val logits.shape', logits, logits.shape)
+                loss = criteon(logits, y_batch)
+                print('val epoch, loss.item())', epoch, loss.item())
+            acc = total_correct / total_num
+            print('val acc', acc)
     # test
+    my_resnet_50.eval()  # 加入这个，表示 是测试或者验证，加快速度
+    test_set = MyDataset('xx2.txt', 'C')
+    test_data = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
+    total_correct = 0
+    total_num = 0
+    k = 0
+    for x, y in test_data:
+        x = torch.randn(len(y), 3, 1080, 1920)
+        # x = x.to(device)
+        # y = y.to(device)  # [b]
+        # [b,6]
+        logits = my_resnet_50(x)
+        # [b]
+        pred = logits.argmax(dim=1)
+        total_correct += torch.eq(pred, y).float().sum().item()
+        total_num += x.size(0)
+        k += 1
+        if k == 4:
+            break
+    acc = total_correct / total_num
+    print('acc', acc)
