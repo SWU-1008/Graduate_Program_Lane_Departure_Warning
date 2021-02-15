@@ -40,7 +40,7 @@ class AttentionBlock(nn.Module):
         b, c, h, w = x.size()
         v = self.V(x).view(b, c, h * w)  # [b,c,N]
         x = self.pool(x)
-        print(x.shape)
+        print('attention block input x shape: ',x.shape)
         x = x.view(b, c, -1)  # [b,c,N]
         q = x @ self.Q  # [b,c,z]
         k = x @ self.K  # [b,c,z]

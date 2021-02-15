@@ -24,6 +24,8 @@ import torch
 import torch.nn as nn
 import torchvision.models.resnet
 from attention_block import AttentionBlock
+import numpy as np
+import cv2
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -118,7 +120,7 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.attention = AttentionBlock(planes * self.expansion)
+        # self.attention = AttentionBlock(planes * self.expansion)
 
     def forward(self, x):
         identity = x
@@ -133,7 +135,7 @@ class Bottleneck(nn.Module):
 
         out = self.conv3(out)
         out = self.bn3(out)
-        out = self.attention(out)
+        # out = self.attention(out)
 
         if self.downsample is not None:
             identity = self.downsample(x)
@@ -377,6 +379,7 @@ def wide_resnet101_2(pretrained=False, progress=True, **kwargs):
 
 
 class MyDataset(Dataset):
+
     def __init__(self, txt_path, base_dir, transform=None):
         classes_dict = {'00': 0, '01': 1, '02': 2, '10': 3, '11': 4, '12': 5}
         self.transfrom = transform
@@ -392,11 +395,18 @@ class MyDataset(Dataset):
 
     def __getitem__(self, item):
         img_path, label = self.data[item]
-        # img = Image.open(img_path)
-        # if self.transfrom:
-        #     img = self.transfrom(img)
-        # return img, label
-        return img_path, label
+        # 如果是 png 图片，PIL 读取的会是四通道的，所以需要 转成 RGB
+        # img = torch.Tensor(np.array(Image.open(img_path).convert("RGB"))/255.0).permute(2,0,1)
+        img = cv2.imread(img_path)
+        img = cv2.resize(img,(288,512))  # 图片太大，压缩一下
+        img = torch.Tensor(img / 255.0).permute(2, 0, 1)  # opencv 默认是读取三通道的[BGR]格式
+        # opencv 读取的图像为BGR,转为RGB
+        # img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+        # print('img shape', img.shape)
+        if self.transfrom:
+            img = self.transfrom(img)
+        return img, label
+        # return img_path, label
 
     def __len__(self):
         return len(self.data)
@@ -407,19 +417,24 @@ if __name__ == '__main__':
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    mydata = MyDataset('xx2.txt', 'C')
-    batch_size = 4
+    mydata = MyDataset('xx2.txt', '/home/lab1008/Desktop/workspace/Graduate_Program_Lane_Departure_Warning')
+    batch_size = 20
     # 8:2 划分训练验证集
     train_size = int(0.8 * len(mydata))
     val_size = len(mydata) - train_size
     print('train_size,test_size', train_size, val_size)
     train_set, val_set = torch.utils.data.random_split(mydata, [train_size, val_size])
     # 加载数据
-    train_data = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_data = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4)
+    train_data = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=10)
+    val_data = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=10)
     print('len(train_data),len(test_data)', len(train_data), len(val_data))
 
     my_resnet_50 = resnet50(num_classes=6)
+    # 查看一下参数量
+    print("Total number of paramerters in networks is {}  ".format(sum(x.numel() for x in my_resnet_50.parameters())))
+    #打印模型名称与shape
+    for name,parameters in my_resnet_50.named_parameters():
+        print(name,':',parameters.size())
     my_resnet_50.to(device)  # 加载进 gpu 如果有的话
     criteon = nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.Adam(my_resnet_50.parameters(), lr=5e-4)
@@ -430,20 +445,21 @@ if __name__ == '__main__':
         print('epoch: ', epoch)
         my_resnet_50.train()
         for img_batch, y_batch in tqdm(train_data):
-            x = torch.randn(len(y_batch), 3, 1080, 1920)
-            # img_batch = img_batch.to(device)
-            # y_batch = y_batch.to(device)
-            # print(img_batch, y_batch)
-            # logits = my_resnet_50(img_batch)
-            logits = my_resnet_50(x)
-            print('logits.shape', logits, logits.shape)
+            # x = torch.randn(len(y_batch), 3, 1080, 1920)
+            img_batch = img_batch.to(device)
+            y_batch = y_batch.to(device)
+            # print('img_batch.shape, y_batch.shape', img_batch.shape, y_batch.shape)
+            logits = my_resnet_50(img_batch)
+            # logits = my_resnet_50(x)
+            # print('logits.shape', logits, logits.shape)
             loss = criteon(logits, y_batch)
-            print('epoch, loss.item())', epoch, loss.item())
+            print('epoch, loss.item:', epoch, loss.item())
             # back prop
             optimizer.zero_grad()
             loss.backward()
             # loss.back
             optimizer.step()  # 梯度清零
+            # torch.cuda.empty_cache()
         #  每 5 个 epoch 做一次 val
         if epoch % 2 == 0:
             # val 必须调用model.eval()，以便在运行推断之前将dropout和batch规范化层设置为评估模式。如果不这样做，将会产生不一致的推断结果。
@@ -451,33 +467,33 @@ if __name__ == '__main__':
             total_correct = 0
             total_num = 0
             for img_batch, y_batch in tqdm(val_data):
-                x = torch.randn(len(y_batch), 3, 1080, 1920)
-                # img_batch = img_batch.to(device)
-                # y_batch = y_batch.to(device)
+                # img_batch = torch.randn(len(y_batch), 3, 1080, 1920)
+                img_batch = img_batch.to(device)
+                y_batch = y_batch.to(device)
                 # print(img_batch, y_batch)
-                # logits = my_resnet_50(img_batch)
                 # [b,6]
-                logits = my_resnet_50(x)
+                logits = my_resnet_50(img_batch)
+                # logits = my_resnet_50(x)
                 # [b]
                 pred = logits.argmax(dim=1)
                 total_correct += torch.eq(pred, y_batch).float().sum().item()
-                total_num += x.size(0)
-                print('val logits.shape', logits, logits.shape)
+                total_num += img_batch.size(0)
+                # print('val logits.shape: ', logits, logits.shape)
                 loss = criteon(logits, y_batch)
                 print('val epoch, loss.item())', epoch, loss.item())
             acc = total_correct / total_num
             print('val acc', acc)
     # test
     my_resnet_50.eval()  # 加入这个，表示 是测试或者验证，加快速度
-    test_set = MyDataset('xx2.txt', 'C')
+    test_set = MyDataset('xx2.txt', '/home/lab1008/Desktop/workspace/Graduate_Program_Lane_Departure_Warning')
     test_data = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
     total_correct = 0
     total_num = 0
     k = 0
     for x, y in test_data:
-        x = torch.randn(len(y), 3, 1080, 1920)
-        # x = x.to(device)
-        # y = y.to(device)  # [b]
+        # x = torch.randn(len(y), 3, 1080, 1920)
+        x = x.to(device)
+        y = y.to(device)  # [b]
         # [b,6]
         logits = my_resnet_50(x)
         # [b]
