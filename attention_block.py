@@ -22,10 +22,10 @@ import torch.nn as nn
 class AttentionBlock(nn.Module):
     def __init__(self, inplanes):
         super(AttentionBlock, self).__init__()
-        w, h = 32, 18
-        self.pool = nn.AdaptiveAvgPool2d((h, w))
-        self.Q = nn.Parameter(torch.FloatTensor(w * h, inplanes // 8))
-        self.K = nn.Parameter(torch.FloatTensor(w * h, inplanes // 8))
+        W_, h_ = 32, 18
+        self.pool = nn.AdaptiveAvgPool2d((h_, W_))
+        self.Q = nn.Parameter(torch.FloatTensor(W_ * h_, inplanes // 8))
+        self.K = nn.Parameter(torch.FloatTensor(W_ * h_, inplanes // 8))
         self.V = nn.Conv2d(in_channels=inplanes, out_channels=inplanes, kernel_size=1, stride=1)
         self.soft_max = nn.Softmax(dim=2)
 
@@ -40,8 +40,8 @@ class AttentionBlock(nn.Module):
         b, c, h, w = x.size()
         v = self.V(x).view(b, c, h * w)  # [b,c,N]
         x = self.pool(x)
-        print('attention block input x shape: ',x.shape)
-        x = x.view(b, c, -1)  # [b,c,N]
+        # print('attention block input x shape: ',x.shape)
+        x = x.view(b, c, -1)  # [b,c,N']
         q = x @ self.Q  # [b,c,z]
         k = x @ self.K  # [b,c,z]
         a = q @ k.permute(0, 2, 1) / (c ** 0.5)  # [b,c,c]
@@ -69,3 +69,4 @@ if __name__ == '__main__':
     at = AttentionBlock(3)
     res = at(inputs)
     print(res, res.shape)
+    torch.linspace(0,6,6).int()

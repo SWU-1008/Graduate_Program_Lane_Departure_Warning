@@ -13,7 +13,7 @@
 -------------------------------------------------
 """
 import os
-
+import logging
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 
@@ -22,7 +22,7 @@ __author__ = 'Max_Pengjb'
 from torch.hub import load_state_dict_from_url
 import torch
 import torch.nn as nn
-import torchvision.models.resnet
+from torchvision.models import resnet
 from attention_block import AttentionBlock
 import numpy as np
 import cv2
@@ -120,7 +120,7 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        # self.attention = AttentionBlock(planes * self.expansion)
+        self.attention = AttentionBlock(planes * self.expansion)
 
     def forward(self, x):
         identity = x
@@ -135,7 +135,7 @@ class Bottleneck(nn.Module):
 
         out = self.conv3(out)
         out = self.bn3(out)
-        # out = self.attention(out)
+        out = self.attention(out)
 
         if self.downsample is not None:
             identity = self.downsample(x)
@@ -381,9 +381,19 @@ def wide_resnet101_2(pretrained=False, progress=True, **kwargs):
 class MyDataset(Dataset):
 
     def __init__(self, txt_path, base_dir, transform=None):
+        SPLIT_FILES = {
+            '00': "my_list/train_normal.txt",
+            '01': 'my_list/train_night.txt',
+            '02': "my_list/train_shadow.txt",
+            '10': 'my_list/train_hlight.txt',
+            '11': 'my_list/train_hlight_night.txt',
+            '12': 'my_list/train_hlight_shadow.txt'
+        }
+        split_txts = {'00': [], '01': [], '02': [], '10': [], '11': [], '12': []}
         classes_dict = {'00': 0, '01': 1, '02': 2, '10': 3, '11': 4, '12': 5}
         self.transfrom = transform
         self.data = []
+        print(txt_path)
         with open(txt_path, 'r') as f:
             lines = f.readlines()
         for line in lines:
@@ -392,13 +402,22 @@ class MyDataset(Dataset):
             img, a, b = line.split()
             img_path = os.path.join(base_dir, os.path.join(*img.split('/')))
             self.data.append((img_path, classes_dict[a + b]))
+            split_txts[a + b].append(img_path + ' ' + str(classes_dict[a + b]))
+        # 把每个类别的图片分别存放在不同的 txt 后缀的 label 文档
+        for class_str, txt_path in SPLIT_FILES.items():
+            split_txt_path = os.path.join(base_dir, os.path.join(*txt_path.split('/')))
+            if os.path.exists(split_txt_path):
+                continue
+            else:
+                with open(split_txt_path,'w') as spt:
+                    spt.write('\n'.join(split_txts[class_str]))
 
     def __getitem__(self, item):
         img_path, label = self.data[item]
         # 如果是 png 图片，PIL 读取的会是四通道的，所以需要 转成 RGB
         # img = torch.Tensor(np.array(Image.open(img_path).convert("RGB"))/255.0).permute(2,0,1)
         img = cv2.imread(img_path)
-        img = cv2.resize(img,(288,512))  # 图片太大，压缩一下
+        img = cv2.resize(img, (288, 512))  # 图片太大，压缩一下
         img = torch.Tensor(img / 255.0).permute(2, 0, 1)  # opencv 默认是读取三通道的[BGR]格式
         # opencv 读取的图像为BGR,转为RGB
         # img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
@@ -415,93 +434,133 @@ class MyDataset(Dataset):
 if __name__ == '__main__':
     from tqdm import tqdm
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    mydata = MyDataset('xx2.txt', '/home/lab1008/Desktop/workspace/Graduate_Program_Lane_Departure_Warning')
-    batch_size = 20
-    # 8:2 划分训练验证集
-    train_size = int(0.8 * len(mydata))
-    val_size = len(mydata) - train_size
-    print('train_size,test_size', train_size, val_size)
-    train_set, val_set = torch.utils.data.random_split(mydata, [train_size, val_size])
-    # 加载数据
-    train_data = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=10)
-    val_data = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=10)
-    print('len(train_data),len(test_data)', len(train_data), len(val_data))
-
-    my_resnet_50 = resnet50(num_classes=6)
+    isMy = True  # 训练一个加了 attention 的 resnet 和一个原始的，进行对比
+    # isMy = False
+    last_epoch = 349
+    if isMy:
+        model_name = 'my_resnet_50'
+        device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+        my_resnet_50 = resnet50(num_classes=6)  # 加了attention 的
+    else:
+        model_name = 'origin_resnet_50'
+        device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+        my_resnet_50 = resnet.resnet50(num_classes=6)  # 原始的 resnet
+    pre_trained = './model_dicts/' + model_name + '_' + str(last_epoch) + '.pth'
+    my_resnet_50.load_state_dict(torch.load(pre_trained))
+    my_resnet_50.to(device)  # 加载进 gpu 如果有的话
     # 查看一下参数量
     print("Total number of paramerters in networks is {}  ".format(sum(x.numel() for x in my_resnet_50.parameters())))
-    #打印模型名称与shape
-    for name,parameters in my_resnet_50.named_parameters():
-        print(name,':',parameters.size())
-    my_resnet_50.to(device)  # 加载进 gpu 如果有的话
+    # 打印模型名称与shape
+    for name, parameters in my_resnet_50.named_parameters():
+        print(name, ':', parameters.size())
+
+    # LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(pathname)s %(message)s "  # 配置输出日志格式
+    LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s "  # 配置输出日志格式
+    DATE_FORMAT = '%Y-%m-%d  %H:%M:%S %a '  # 配置输出时间的格式，注意月份和天数不要搞乱了
+    logging.basicConfig(level=logging.INFO,
+                        format=LOG_FORMAT,
+                        datefmt=DATE_FORMAT,
+                        # 不同的模型保存到不同的 log 文件
+                        filename=model_name + ".log")  # 有了filename参数就不会直接输出显示到控制台，而是直接写入文件
+
+    # 数据集
+    base_dir = '/home/lab1008/Desktop/datasets/CULane'  # CULane 数据集位置
+    train_val_txt = '/home/lab1008/Desktop/datasets/CULane/xx.txt'  # 训练集和验证集的标签文件
+    # 加载数据
+    train_val_set = MyDataset(train_val_txt, base_dir)
+    test_txt = 'xx2.txt'  # todo 测试集的标签文件
+
+    # 8:2 划分[训练集：验证集]
+    train_size = int(0.8 * len(train_val_set))
+    val_size = len(train_val_set) - train_size
+    print('train_size,test_size', train_size, val_size)
+    train_set, val_set = torch.utils.data.random_split(train_val_set, [train_size, val_size])
+    # batch 大小
+    batch_size = 8
+
+    train_data = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
+    val_data = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4)
+    print('len(train_data),len(test_data)', len(train_data), len(val_data))
+    # 测试集
+    test_set = MyDataset(test_txt, base_dir)
+    test_data = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
+
+    # 加载进 GPU（if E）
     criteon = nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.Adam(my_resnet_50.parameters(), lr=5e-4)
-    # train
-    epochs = 4
 
-    for epoch in range(epochs):
-        print('epoch: ', epoch)
-        my_resnet_50.train()
-        for img_batch, y_batch in tqdm(train_data):
-            # x = torch.randn(len(y_batch), 3, 1080, 1920)
-            img_batch = img_batch.to(device)
-            y_batch = y_batch.to(device)
+
+    def train(model, data_loader, criteon, optimizer, model_name, isTrain=False, epoch_idx=None):
+        if isTrain:
+            model.train()
+        else:
+            model.eval()
+        train_loss = 0
+        num_correct = 0
+        for img_batch, y_batch in tqdm(data_loader):
+            img_batch, y_batch = img_batch.to(device), y_batch.to(device)
             # print('img_batch.shape, y_batch.shape', img_batch.shape, y_batch.shape)
-            logits = my_resnet_50(img_batch)
+            logits = model(img_batch)
             # logits = my_resnet_50(x)
             # print('logits.shape', logits, logits.shape)
             loss = criteon(logits, y_batch)
-            print('epoch, loss.item:', epoch, loss.item())
             # back prop
-            optimizer.zero_grad()
-            loss.backward()
-            # loss.back
-            optimizer.step()  # 梯度清零
-            # torch.cuda.empty_cache()
+            if isTrain:
+                # 做 val 的时候不需要做 反向传播
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()  # 梯度清零
+            train_loss += float(loss.item())
+            pred = logits.argmax(dim=1)
+            num_correct += torch.eq(pred, y_batch).sum().float().item()
+        acc = num_correct / len(data_loader.dataset)
+        loss = train_loss / len(data_loader)
+        if isTrain:
+            assert epoch_idx is not None
+            torch.save(model.state_dict(), './model_dicts/' + model_name + '_' + str(epoch_idx) + '.pth')
+        return loss, acc
+
+
+    # train
+    epochs = 0
+    start_epoch = last_epoch + 1
+    for epoch in range(start_epoch, start_epoch + epochs):
+        loss, acc = train(my_resnet_50, train_data, criteon, optimizer, model_name, True, epoch)
+        logging.info("Train Epoch: {}\t Loss: {:.6f}\t Acc: {:.6f}".format(epoch, loss, acc))
+        print("Train Epoch: {}\t Loss: {:.6f}\t Acc: {:.6f}".format(epoch, loss, acc))
         #  每 5 个 epoch 做一次 val
         if epoch % 2 == 0:
             # val 必须调用model.eval()，以便在运行推断之前将dropout和batch规范化层设置为评估模式。如果不这样做，将会产生不一致的推断结果。
-            my_resnet_50.eval()
-            total_correct = 0
-            total_num = 0
-            for img_batch, y_batch in tqdm(val_data):
-                # img_batch = torch.randn(len(y_batch), 3, 1080, 1920)
-                img_batch = img_batch.to(device)
-                y_batch = y_batch.to(device)
-                # print(img_batch, y_batch)
-                # [b,6]
-                logits = my_resnet_50(img_batch)
-                # logits = my_resnet_50(x)
-                # [b]
-                pred = logits.argmax(dim=1)
-                total_correct += torch.eq(pred, y_batch).float().sum().item()
-                total_num += img_batch.size(0)
-                # print('val logits.shape: ', logits, logits.shape)
-                loss = criteon(logits, y_batch)
-                print('val epoch, loss.item())', epoch, loss.item())
-            acc = total_correct / total_num
-            print('val acc', acc)
+            loss, acc = train(my_resnet_50, val_data, criteon, None, model_name, False)
+            logging.info("Val Epoch: {}\t Loss: {:.6f}\t Acc: {:.6f}".format(epoch, loss, acc))
+            print("Val Epoch: {}\t Loss: {:.6f}\t Acc: {:.6f}".format(epoch, loss, acc))
+
     # test
-    my_resnet_50.eval()  # 加入这个，表示 是测试或者验证，加快速度
-    test_set = MyDataset('xx2.txt', '/home/lab1008/Desktop/workspace/Graduate_Program_Lane_Departure_Warning')
-    test_data = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
-    total_correct = 0
-    total_num = 0
-    k = 0
-    for x, y in test_data:
-        # x = torch.randn(len(y), 3, 1080, 1920)
-        x = x.to(device)
-        y = y.to(device)  # [b]
-        # [b,6]
-        logits = my_resnet_50(x)
-        # [b]
-        pred = logits.argmax(dim=1)
-        total_correct += torch.eq(pred, y).float().sum().item()
-        total_num += x.size(0)
-        k += 1
-        if k == 4:
-            break
-    acc = total_correct / total_num
-    print('acc', acc)
+    # loss, acc = train(my_resnet_50, val_data, criteon, None, model_name, False)
+    # logging.info("Test Loss: {:.6f}\t Acc: {:.6f}".format(loss, acc))
+
+    # 混淆矩阵
+    model_name = 'origin_resnet_50'
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    or_resnet_50 = resnet.resnet50(num_classes=6)  # 原始的 resnet
+    pre_trained = './model_dicts/' + model_name + '_' + str(199) + '.pth'
+    or_resnet_50.load_state_dict(torch.load(pre_trained))
+    or_resnet_50.to(device)  # 加载进 gpu 如果有的话
+    my_cm = torch.zeros(6,6).to(device)
+    or_cm = torch.zeros(6,6).to(device)
+    my_resnet_50.eval()
+    or_resnet_50.eval()
+    with torch.no_grad():
+        for img_batch, y_batch in tqdm(val_data):
+            img_batch = img_batch.to(device)
+            y_batch = y_batch.to(device)
+            my_logits = my_resnet_50(img_batch)
+            or_logits = or_resnet_50(img_batch)
+            my_pres = torch.argmax(my_logits,dim=1)
+            or_pres = torch.argmax(or_logits,dim=1)
+            for i, j in zip(y_batch, my_pres):
+                my_cm[i, j] += 1
+            for i, j in zip(y_batch, or_pres):
+                or_cm[i, j] += 1
+    print(my_cm)
+    print(or_cm)
