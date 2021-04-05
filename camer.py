@@ -57,7 +57,10 @@ while cap.isOpened():
     elif k == ord('b'):
         b += 1
     elif k == ord(' '):
-        cv2.imwrite(str(time.time()) + ".jpg", img_camera)
+        name = str(time.time())
+        cv2.imwrite(name + ".jpg", img_camera)
+        with open(name + '.txt', 'w') as f:
+            f.write(str(top_l) + str(top_r) + str(bot_l) + str(bot_r))
     if k == ord('q'):
         break
 
