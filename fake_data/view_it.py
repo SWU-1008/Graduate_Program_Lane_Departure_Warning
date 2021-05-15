@@ -142,7 +142,7 @@ for j in range(13):
         kpsoi.draw_on_image(img, copy=False, color=colors[i], size=5)
         xys = kpsoi.to_xy_array()
         lanes.append(xys)
-    # cv2.imshow('point', img)
+    cv2.imshow('point', img)
 
     # cv2.polylines(img, lanes, isClosed=False, color=(0, 0, 255), thickness=3)
     ptss = []  # 透视之后的关键点
@@ -167,7 +167,7 @@ for j in range(13):
         x = a * y * y + b * y + c  ##函数式
         pppsss = list(zip(x, y))
         cv2.polylines(dst, np.int32([pppsss]), isClosed=False, color=colors[i], thickness=3)
-    # cv2.imshow('ipm_poly', dst)
+    cv2.imshow('ipm_poly', dst)
 
     '''
     勾画行车轨迹，只和拐弯的角度 theta 有关
